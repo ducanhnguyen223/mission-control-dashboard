@@ -16,6 +16,7 @@ STATE_PATH = Path(os.environ.get("CLAUDE_WATCHDOG_STATE", "/root/.openclaw/works
 
 YES_NO_RE = re.compile(r"\bYes\b.*\bNo\b|\bNo\b.*\bYes\b", re.IGNORECASE | re.DOTALL)
 PRESS_ENTER_RE = re.compile(r"Press Enter to continue|enter to continue", re.IGNORECASE)
+CONTINUE_RE = re.compile(r"\b(yes[, ]+continue|continue to next section|continue\b|proceed\b|go ahead\b|next section\b|next step\b|keep going\b)", re.IGNORECASE)
 INTERRUPTED_RE = re.compile(r"Interrupted\s*·\s*What should Claude do instead\?", re.IGNORECASE)
 EXTERNAL_RE = re.compile(r"\b(push|remote|github|deploy|publish|production|dns|domain|email|send)\b", re.IGNORECASE)
 DESTRUCTIVE_RE = re.compile(r"\b(rm\s+-rf|drop database|truncate|delete all|destroy|wipe|format disk)\b", re.IGNORECASE)
@@ -90,6 +91,16 @@ def should_press_enter(text: str) -> bool:
     return bool(PRESS_ENTER_RE.search(text))
 
 
+def should_continue(text: str) -> bool:
+    if not CONTINUE_RE.search(text):
+        return False
+    if DESTRUCTIVE_RE.search(text):
+        return False
+    if EXTERNAL_RE.search(text):
+        return False
+    return True
+
+
 def should_pause_for_human(text: str) -> bool:
     return bool(INTERRUPTED_RE.search(text)) or bool(EXTERNAL_RE.search(text)) or bool(DESTRUCTIVE_RE.search(text))
 
@@ -125,6 +136,10 @@ def main():
             elif should_press_enter(text):
                 log("action=enter auto-continued prompt")
                 send_enter()
+                last_action_at = now_ts
+            elif should_continue(text):
+                log("action=continue auto-submitted continue/proceed prompt")
+                submit("yes")
                 last_action_at = now_ts
             elif changed and should_pause_for_human(text):
                 tail = " | ".join([ln.strip() for ln in text.splitlines()[-6:] if ln.strip()])
