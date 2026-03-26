@@ -24,25 +24,25 @@ export function OpenClawStatus({ status }: OpenClawStatusProps) {
       rightSlot={<Pill tone={statusTone(status.gateway)}>{status.gateway}</Pill>}
     >
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-xl border border-cyan-300/15 bg-[#111c31]/65 p-3">
-          <p className="font-display text-[10px] uppercase tracking-wide text-slate-500">Gateway</p>
-          <p className="mt-2 inline-flex items-center gap-2 font-medium text-slate-100">
-            <Gauge className="h-4 w-4 text-cyan-200" />
+        <div className="rounded-xl border border-slate-600/35 bg-slate-900/60 p-3.5">
+          <p className="text-[11px] font-medium text-slate-500">Gateway</p>
+          <p className="mt-2 inline-flex items-center gap-2 font-semibold text-slate-100">
+            <Gauge className="h-4 w-4 text-slate-300" />
             {status.gateway}
           </p>
         </div>
-        <div className="rounded-xl border border-cyan-300/15 bg-[#111c31]/65 p-3">
-          <p className="font-display text-[10px] uppercase tracking-wide text-slate-500">Heartbeat</p>
-          <p className="mt-2 inline-flex items-center gap-2 font-medium text-slate-100">
+        <div className="rounded-xl border border-slate-600/35 bg-slate-900/60 p-3.5">
+          <p className="text-[11px] font-medium text-slate-500">Heartbeat</p>
+          <p className="mt-2 inline-flex items-center gap-2 font-semibold text-slate-100">
             <Activity className="h-4 w-4 text-emerald-300" />
             {status.heartbeat}
           </p>
         </div>
       </div>
 
-      <div className="mt-3 rounded-xl border border-cyan-300/12 bg-[#0f1728]/70 p-3">
-        <p className="font-display text-[10px] uppercase tracking-wide text-slate-500">Last important alert</p>
-        <p className="mt-2 inline-flex items-center gap-2 text-sm text-slate-100">
+      <div className="mt-3.5 rounded-xl border border-slate-600/35 bg-slate-900/60 p-3.5">
+        <p className="text-[11px] font-medium text-slate-500">Last important alert</p>
+        <p className="mt-2.5 inline-flex items-center gap-2 text-sm font-medium text-slate-100">
           {status.lastAlert.toLowerCase().includes('no critical') ? (
             <ShieldCheck className="h-4 w-4 text-emerald-300" />
           ) : (
@@ -52,7 +52,7 @@ export function OpenClawStatus({ status }: OpenClawStatusProps) {
         </p>
       </div>
 
-      <div className="mt-3 flex items-center justify-between rounded-xl border border-cyan-300/12 bg-[#0b1324]/80 px-3 py-2.5 text-xs text-slate-400">
+      <div className="mt-3.5 flex items-center justify-between rounded-xl border border-slate-600/35 bg-slate-900/55 px-3.5 py-2.5 text-xs font-medium text-slate-400">
         <span>Sessions active: {status.sessionsActive}</span>
         <span>Updated {formatRelativeTime(status.lastSyncAt)}</span>
       </div>

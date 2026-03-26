@@ -37,21 +37,21 @@ export function JobsSchool({ items }: JobsSchoolProps) {
       subtitle="Prioritized from FPT mailbox"
       rightSlot={<Pill tone="success">FPT protected</Pill>}
     >
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         {items.map((item) => {
           const Icon = typeIcon(item.type);
 
           return (
-            <article key={item.id} className="rounded-xl border border-cyan-300/12 bg-[#101a2d]/68 p-3">
+            <article key={item.id} className="rounded-xl border border-slate-600/35 bg-slate-900/60 p-3.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-100">{item.title}</p>
-                  <p className="mt-1 text-xs text-slate-400">{item.source}</p>
+                  <p className="truncate text-sm font-semibold text-slate-100">{item.title}</p>
+                  <p className="mt-1 text-xs font-medium text-slate-400">{item.source}</p>
                 </div>
                 <Pill tone={typeTone(item.type)}>{item.type}</Pill>
               </div>
-              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
-                <Icon className="h-3.5 w-3.5 text-cyan-200" />
+              <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                <Icon className="h-3.5 w-3.5 text-slate-300" />
                 <span className="truncate">{item.account}</span>
                 <span>•</span>
                 <span>{formatRelativeTime(item.receivedAt)}</span>

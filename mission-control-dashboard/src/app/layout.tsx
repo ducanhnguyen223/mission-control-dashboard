@@ -1,17 +1,17 @@
-import { IBM_Plex_Mono, Orbitron } from 'next/font/google';
+import { Manrope, Sora } from 'next/font/google';
 import type { Metadata } from 'next';
 
 import './globals.css';
 
-const displayFont = Orbitron({
+const displayFont = Sora({
   subsets: ['latin'],
-  weight: ['500', '700'],
+  weight: ['500', '600', '700'],
   variable: '--font-display'
 });
 
-const bodyFont = IBM_Plex_Mono({
+const bodyFont = Manrope({
   subsets: ['latin'],
-  weight: ['400', '500', '600'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-body'
 });
 
