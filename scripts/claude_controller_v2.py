@@ -91,8 +91,8 @@ def detect_action(text: str) -> tuple[str, str]:
         and "2. yes, allow all edits during this session" in low
         and "3. no" in low
     )
-    if is_edit_approval and ("❯ 1. Yes" in t or pline == "❯ 1. Yes"):
-        return ("enter", "edit-approval-selected-yes")
+    if is_edit_approval:
+        return ("submit:1", "edit-approval")
 
     if plow in ("❯ con/resume", "❯ resume", "resume", "con/resume"):
         return ("submit:resume", "resume-prompt")
