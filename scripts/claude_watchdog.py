@@ -20,6 +20,7 @@ CONTINUE_RE = re.compile(r"\b(yes[, ]+continue|continue to next section|continue
 INTERRUPTED_RE = re.compile(r"Interrupted\s*·\s*What should Claude do instead\?", re.IGNORECASE)
 EXTERNAL_RE = re.compile(r"\b(push|remote|github|deploy|publish|production|dns|domain|email|send)\b", re.IGNORECASE)
 DESTRUCTIVE_RE = re.compile(r"\b(rm\s+-rf|drop database|truncate|delete all|destroy|wipe|format disk)\b", re.IGNORECASE)
+EDIT_APPROVAL_RE = re.compile(r"Do you want to make this edit to .*?\n.*?1\. Yes\n.*?2\. Yes, allow all edits during this session.*?\n.*?3\. No", re.IGNORECASE | re.DOTALL)
 
 
 def now():
@@ -137,6 +138,10 @@ def main():
                 log("action=enter auto-continued prompt")
                 send_enter()
                 last_action_at = now_ts
+            elif should_allow_edit_session(text):
+                log("action=2 auto-allowed edit approvals for this session")
+                submit("2")
+                last_action_at = now_ts
             elif should_continue(text):
                 log("action=continue auto-submitted continue/proceed prompt")
                 submit("yes")
@@ -154,4 +159,6 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.exit(main())
+f __name__ == "__main__":
     sys.exit(main())
