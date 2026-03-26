@@ -10,7 +10,7 @@ from pathlib import Path
 
 SESSION = os.environ.get("CLAUDE_TMUX_SESSION", "claude")
 PANE = os.environ.get("CLAUDE_TMUX_PANE", f"{SESSION}:0.0")
-POLL_SECONDS = float(os.environ.get("CLAUDE_WATCHDOG_POLL_SECONDS", "2.0"))
+POLL_SECONDS = float(os.environ.get("CLAUDE_WATCHDOG_POLL_SECONDS", "0.5"))
 LOG_PATH = Path(os.environ.get("CLAUDE_WATCHDOG_LOG", "/root/.openclaw/workspace/memory/claude-watchdog.log"))
 STATE_PATH = Path(os.environ.get("CLAUDE_WATCHDOG_STATE", "/root/.openclaw/workspace/memory/claude-watchdog.state"))
 
