@@ -1,6 +1,8 @@
 import type { ComponentType } from 'react';
 
+import clsx from 'clsx';
 import { ActivitySquare, Bell, Cpu, Shield, Zap } from 'lucide-react';
+import Link from 'next/link';
 
 import { getDashboardSnapshot } from '@/lib/dashboard-source';
 
@@ -11,8 +13,29 @@ import { PriorityInbox } from './priority-inbox';
 import { QuickActions } from './quick-actions';
 import { TasksAgents } from './tasks-agents';
 
-export async function DashboardShell() {
+type DashboardTabId = 'overview' | 'mail' | 'agents' | 'infra' | 'jobs-school' | 'actions';
+
+interface DashboardTab {
+  id: DashboardTabId;
+  label: string;
+}
+
+const DASHBOARD_TABS: DashboardTab[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'mail', label: 'Mail' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'infra', label: 'Infra' },
+  { id: 'jobs-school', label: 'Jobs/School' },
+  { id: 'actions', label: 'Actions' }
+];
+
+interface DashboardShellProps {
+  activeTab?: string;
+}
+
+export async function DashboardShell({ activeTab }: DashboardShellProps) {
   const dashboardData = await getDashboardSnapshot();
+  const normalizedTab = normalizeTab(activeTab);
 
   const criticalCount = dashboardData.priorityInbox.filter((item) => item.priority === 'high').length;
 
@@ -43,28 +66,127 @@ export async function DashboardShell() {
         </div>
       </header>
 
-      <section className="grid gap-5 lg:grid-cols-12">
-        <div className="space-y-5 lg:col-span-7">
-          <PriorityInbox items={dashboardData.priorityInbox} />
-          <CleanupQueue items={dashboardData.cleanupQueue} />
-        </div>
+      <nav className="mb-5 overflow-x-auto pb-1">
+        <ul className="inline-flex min-w-full gap-2 rounded-2xl border border-slate-600/30 bg-slate-900/55 p-1.5">
+          {DASHBOARD_TABS.map((tab) => {
+            const isActive = tab.id === normalizedTab;
 
-        <div className="space-y-5 lg:col-span-5">
-          <JobsSchool items={dashboardData.jobsSchool} />
-          <OpenClawStatus status={dashboardData.openclawStatus} />
-        </div>
-      </section>
+            return (
+              <li key={tab.id}>
+                <Link
+                  href={tab.id === 'overview' ? '/' : `/?tab=${tab.id}`}
+                  className={clsx(
+                    'inline-flex h-9 items-center rounded-xl px-3.5 text-xs font-semibold transition',
+                    isActive
+                      ? 'bg-slate-100 text-slate-950 shadow-[0_6px_22px_rgba(15,23,42,0.34)]'
+                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-100'
+                  )}
+                >
+                  {tab.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
-      <section className="mt-5 grid gap-5 lg:grid-cols-12">
-        <div className="lg:col-span-7">
-          <TasksAgents items={dashboardData.tasksAgents} />
-        </div>
-        <div className="lg:col-span-5">
-          <QuickActions actions={dashboardData.quickActions} />
-        </div>
-      </section>
+      {normalizedTab === 'overview' ? (
+        <>
+          <section className="grid gap-5 lg:grid-cols-12">
+            <div className="space-y-5 lg:col-span-7">
+              <PriorityInbox items={dashboardData.priorityInbox} />
+              <CleanupQueue items={dashboardData.cleanupQueue} />
+            </div>
+
+            <div className="space-y-5 lg:col-span-5">
+              <JobsSchool items={dashboardData.jobsSchool} />
+              <OpenClawStatus status={dashboardData.openclawStatus} />
+            </div>
+          </section>
+
+          <section className="mt-5 grid gap-5 lg:grid-cols-12">
+            <div className="lg:col-span-7">
+              <TasksAgents items={dashboardData.tasksAgents} />
+            </div>
+            <div className="lg:col-span-5">
+              <QuickActions actions={dashboardData.quickActions} />
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {normalizedTab === 'mail' ? (
+        <section className="grid gap-5 lg:grid-cols-12">
+          <div className="space-y-5 lg:col-span-7">
+            <PriorityInbox items={dashboardData.priorityInbox} />
+          </div>
+          <div className="space-y-5 lg:col-span-5">
+            <CleanupQueue items={dashboardData.cleanupQueue} />
+          </div>
+        </section>
+      ) : null}
+
+      {normalizedTab === 'agents' ? (
+        <section className="grid gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <TasksAgents items={dashboardData.tasksAgents} />
+          </div>
+          <div className="lg:col-span-5">
+            <QuickActions actions={dashboardData.quickActions.filter((action) => !isDestructiveInfraAction(action.command))} />
+          </div>
+        </section>
+      ) : null}
+
+      {normalizedTab === 'infra' ? (
+        <section className="grid gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <OpenClawStatus status={dashboardData.openclawStatus} />
+          </div>
+          <div className="lg:col-span-5">
+            <QuickActions actions={dashboardData.quickActions.filter((action) => isDestructiveInfraAction(action.command))} />
+          </div>
+        </section>
+      ) : null}
+
+      {normalizedTab === 'jobs-school' ? (
+        <section className="grid gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <JobsSchool items={dashboardData.jobsSchool} />
+          </div>
+          <div className="lg:col-span-5">
+            <PriorityInbox
+              items={dashboardData.priorityInbox.filter((item) => item.account.endsWith('@fpt.edu.vn'))}
+            />
+          </div>
+        </section>
+      ) : null}
+
+      {normalizedTab === 'actions' ? (
+        <section className="grid gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <QuickActions actions={dashboardData.quickActions} />
+          </div>
+          <div className="lg:col-span-5">
+            <OpenClawStatus status={dashboardData.openclawStatus} />
+          </div>
+        </section>
+      ) : null}
     </main>
   );
+}
+
+function normalizeTab(activeTab?: string): DashboardTabId {
+  if (activeTab === 'mail') return 'mail';
+  if (activeTab === 'agents') return 'agents';
+  if (activeTab === 'infra') return 'infra';
+  if (activeTab === 'jobs-school') return 'jobs-school';
+  if (activeTab === 'actions') return 'actions';
+
+  return 'overview';
+}
+
+function isDestructiveInfraAction(command: string): boolean {
+  return command.includes('heartbeat') || command.includes('restart');
 }
 
 interface MetricChipProps {
