@@ -9,12 +9,9 @@ from pathlib import Path
 
 SESSION = os.environ.get("CLAUDE_TMUX_SESSION", "claude")
 PANE = os.environ.get("CLAUDE_TMUX_PANE", f"{SESSION}:0.0")
-POLL_SECONDS = float(os.environ.get("CLAUDE_CONTROLLER_POLL_SECONDS", "0.4"))
+POLL_SECONDS = float(os.environ.get("CLAUDE_CONTROLLER_POLL_SECONDS", "0.5"))
 LOG_PATH = Path(os.environ.get("CLAUDE_CONTROLLER_LOG", "/root/.openclaw/workspace/memory/claude-controller-v2.log"))
 STATE_PATH = Path(os.environ.get("CLAUDE_CONTROLLER_STATE", "/root/.openclaw/workspace/memory/claude-controller-v2.state"))
-
-EXTERNAL_WORDS = ("push", "remote", "github", "deploy", "publish", "production", "dns", "domain", "email", "send")
-DESTRUCTIVE_WORDS = ("rm -rf", "drop database", "truncate", "delete all", "destroy", "wipe", "format disk")
 
 
 def now() -> str:
@@ -74,11 +71,6 @@ def write_state(value: str):
     STATE_PATH.write_text(value, encoding="utf-8")
 
 
-def is_external_or_destructive(text: str) -> bool:
-    low = text.lower()
-    return any(w in low for w in EXTERNAL_WORDS) or any(w in low for w in DESTRUCTIVE_WORDS)
-
-
 def prompt_line(text: str) -> str:
     lines = [ln.rstrip() for ln in normalize(text).splitlines() if ln.strip()]
     for ln in reversed(lines[-12:]):
@@ -89,41 +81,21 @@ def prompt_line(text: str) -> str:
 
 def detect_action(text: str) -> tuple[str, str]:
     t = normalize(text)
+    pline = prompt_line(t)
     low = t.lower()
-    pline = prompt_line(t).lower()
+    plow = pline.lower()
 
-    if is_external_or_destructive(t):
-        return ("pause", "external-or-destructive")
-
-    if "do you want to make this edit to" in low and "1. yes" in low and "2. yes, allow all edits during this session" in low and "3. no" in low:
-        if "❯ 1. yes" in pline or pline == "❯ 1. yes":
-            return ("enter", "edit-approval-selected-yes")
-        return ("submit:1", "edit-approval")
-
-    if "con/resume" in low or pline in ("❯ con/resume", "❯ resume", "resume", "con/resume"):
-        return ("submit:resume", "resume-prompt")
-
-    if "press enter to continue" in low or "enter to continue" in low:
-        return ("enter", "continue-enter")
-
-    if "does this section look right" in low and "(yes/no)" in low:
-        return ("submit:yes", "section-approval")
-
-    continue_phrases = (
-        "yes, continue",
-        "continue to next section",
-        "continue",
-        "proceed",
-        "go ahead",
-        "next section",
-        "next step",
-        "keep going",
+    is_edit_approval = (
+        "do you want to make this edit to" in low
+        and "1. yes" in low
+        and "2. yes, allow all edits during this session" in low
+        and "3. no" in low
     )
-    if any(p in low for p in continue_phrases):
-        return ("submit:yes", "continue-prompt")
+    if is_edit_approval and ("❯ 1. Yes" in t or pline == "❯ 1. Yes"):
+        return ("enter", "edit-approval-selected-yes")
 
-    if "yes" in low and "no" in low:
-        return ("submit:yes", "yes-no")
+    if plow in ("❯ con/resume", "❯ resume", "resume", "con/resume"):
+        return ("submit:resume", "resume-prompt")
 
     return ("none", "no-match")
 
@@ -131,16 +103,14 @@ def detect_action(text: str) -> tuple[str, str]:
 def perform(action: str):
     if action == "enter":
         send_enter()
-        return
-    if action.startswith("submit:"):
+    elif action.startswith("submit:"):
         submit(action.split(":", 1)[1])
-        return
 
 
 def main() -> int:
     log(f"controller-start session={SESSION} pane={PANE} poll={POLL_SECONDS}s")
     last_hash = read_state()
-    last_action_key = ""
+    last_action_hash = ""
     last_action_at = 0.0
 
     while True:
@@ -161,20 +131,15 @@ def main() -> int:
                 last_hash = current_hash
 
             action, reason = detect_action(text)
-            key = f"{reason}:{prompt_line(text)}"
             now_ts = time.time()
 
             if action != "none":
-                if action == "pause":
-                    if changed or key != last_action_key:
-                        log(f"pause {reason} :: {prompt_line(text)}")
-                        last_action_key = key
-                else:
-                    if changed or key != last_action_key or now_ts - last_action_at > 4.0:
-                        log(f"action {action} :: {reason} :: {prompt_line(text)}")
-                        perform(action)
-                        last_action_key = key
-                        last_action_at = now_ts
+                action_key = f"{current_hash}:{action}:{reason}"
+                if action_key != last_action_hash and (changed or now_ts - last_action_at > 5.0):
+                    log(f"action {action} :: {reason} :: {prompt_line(text)}")
+                    perform(action)
+                    last_action_hash = action_key
+                    last_action_at = now_ts
 
             time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
