@@ -91,7 +91,7 @@ def should_press_enter(text: str) -> bool:
 
 
 def should_pause_for_human(text: str) -> bool:
-    return bool(INTERRUPTED_RE.search(text)) or bool(EXTERNAL_RE.search(text) and YES_NO_RE.search(text)) or bool(DESTRUCTIVE_RE.search(text))
+    return bool(INTERRUPTED_RE.search(text)) or bool(EXTERNAL_RE.search(text)) or bool(DESTRUCTIVE_RE.search(text))
 
 
 def main():
