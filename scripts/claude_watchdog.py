@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+import hashlib
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+SESSION = os.environ.get("CLAUDE_TMUX_SESSION", "claude")
+PANE = os.environ.get("CLAUDE_TMUX_PANE", f"{SESSION}:0.0")
+POLL_SECONDS = float(os.environ.get("CLAUDE_WATCHDOG_POLL_SECONDS", "0.5"))
+LOG_PATH = Path(os.environ.get("CLAUDE_WATCHDOG_LOG", "/root/.openclaw/workspace/memory/claude-watchdog.log"))
+STATE_PATH = Path(os.environ.get("CLAUDE_WATCHDOG_STATE", "/root/.openclaw/workspace/memory/claude-watchdog.state"))
+
+YES_NO_RE = re.compile(r"\bYes\b.*\bNo\b|\bNo\b.*\bYes\b", re.IGNORECASE | re.DOTALL)
+PRESS_ENTER_RE = re.compile(r"Press Enter to continue|enter to continue", re.IGNORECASE)
+CONTINUE_RE = re.compile(r"\b(yes[, ]+continue|continue to next section|continue\b|proceed\b|go ahead\b|next section\b|next step\b|keep going\b)", re.IGNORECASE)
+RESUME_RE = re.compile(r"(^|\n)\s*❯\s*(?:con/)?resume\s*$", re.IGNORECASE | re.MULTILINE)
+INTERRUPTED_RE = re.compile(r"Interrupted\s*·\s*What should Claude do instead\?", re.IGNORECASE)
+EXTERNAL_RE = re.compile(r"\b(push|remote|github|deploy|publish|production|dns|domain|email|send)\b", re.IGNORECASE)
+DESTRUCTIVE_RE = re.compile(r"\b(rm\s+-rf|drop database|truncate|delete all|destroy|wipe|format disk)\b", re.IGNORECASE)
+EDIT_APPROVAL_RE = re.compile(r"Do you want to make this edit to .*?1\. Yes.*?2\. Yes, allow all edits during this session.*?3\. No", re.IGNORECASE | re.DOTALL)
+EDIT_APPROVAL_SELECTED_YES_RE = re.compile(r"Do you want to make this edit to .*?❯\s*1\. Yes", re.IGNORECASE | re.DOTALL)
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def log(msg: str):
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(f"[{now()}] {msg}\n")
+
+
+def tmux(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["tmux", *args], text=True, capture_output=True)
+
+
+def session_exists(name: str) -> bool:
+    return tmux("has-session", "-t", name).returncode == 0
+
+
+def capture() -> str:
+    proc = tmux("capture-pane", "-p", "-t", PANE, "-S", "-160")
+    return proc.stdout if proc.returncode == 0 else ""
+
+
+def send_literal(text: str):
+    subprocess.run(["tmux", "send-keys", "-t", PANE, "-l", "--", text], check=False)
+
+
+def send_enter():
+    subprocess.run(["tmux", "send-keys", "-t", PANE, "Enter"], check=False)
+
+
+def submit(text: str):
+    send_literal(text)
+    time.sleep(0.08)
+    send_enter()
+
+
+def pane_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def read_state() -> str:
+    try:
+        return STATE_PATH.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
+def write_state(value: str):
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(value, encoding="utf-8")
+
+
+def is_internal(text: str) -> bool:
+    return not EXTERNAL_RE.search(text) and not DESTRUCTIVE_RE.search(text)
+
+
+def should_answer_yes(text: str) -> bool:
+    return bool(YES_NO_RE.search(text)) and is_internal(text)
+
+
+def should_press_enter(text: str) -> bool:
+    return bool(PRESS_ENTER_RE.search(text)) and is_internal(text)
+
+
+def should_continue(text: str) -> bool:
+    return bool(CONTINUE_RE.search(text)) and is_internal(text)
+
+
+def should_allow_edit(text: str) -> bool:
+    if not is_internal(text):
+        return False
+    return (
+        ("Do you want to make this edit to" in text and "1. Yes" in text and "2. Yes, allow all edits during this session" in text and "3. No" in text)
+        or bool(EDIT_APPROVAL_RE.search(text))
+    )
+
+
+def should_resume(text: str) -> bool:
+    if not is_internal(text):
+        return False
+    return "con/resume" in text or bool(RESUME_RE.search(text))
+
+
+def should_pause_for_human(text: str) -> bool:
+    if should_allow_edit(text) or should_resume(text):
+        return False
+    return bool(INTERRUPTED_RE.search(text)) or bool(EXTERNAL_RE.search(text)) or bool(DESTRUCTIVE_RE.search(text))
+
+
+def main() -> int:
+    log(f"watchdog-start session={SESSION} pane={PANE} poll={POLL_SECONDS}s")
+    last_hash = read_state()
+    last_action_at = 0.0
+
+    while True:
+        try:
+            if not session_exists(SESSION):
+                time.sleep(POLL_SECONDS)
+                continue
+
+            text = capture()
+            if not text.strip():
+                time.sleep(POLL_SECONDS)
+                continue
+
+            current_hash = pane_hash(text)
+            changed = current_hash != last_hash
+            if changed:
+                write_state(current_hash)
+                last_hash = current_hash
+
+            now_ts = time.time()
+            if now_ts - last_action_at < 1.0:
+                time.sleep(POLL_SECONDS)
+                continue
+
+            if should_allow_edit(text):
+                if EDIT_APPROVAL_SELECTED_YES_RE.search(text) or "❯ 1. Yes" in text or "❯ 1. Yes" in text:
+                    log("action=enter auto-accepted selected edit approval")
+                    send_enter()
+                else:
+                    log("action=1 auto-accepted edit approval")
+                    submit("1")
+                last_action_at = now_ts
+            elif should_resume(text):
+                log("action=resume auto-submitted con/resume prompt")
+                submit("resume")
+                last_action_at = now_ts
+            elif should_answer_yes(text):
+                log("action=yes auto-accepted internal yes/no prompt")
+                submit("yes")
+                last_action_at = now_ts
+            elif should_press_enter(text):
+                log("action=enter auto-continued prompt")
+                send_enter()
+                last_action_at = now_ts
+            elif should_continue(text):
+                log("action=continue auto-submitted continue/proceed prompt")
+                submit("yes")
+                last_action_at = now_ts
+            elif changed and should_pause_for_human(text):
+                tail = " | ".join([ln.strip() for ln in text.splitlines()[-8:] if ln.strip()])
+                log(f"attention-needed {tail[:700]}")
+
+            time.sleep(POLL_SECONDS)
+        except KeyboardInterrupt:
+            log("watchdog-stop keyboard-interrupt")
+            return 0
+        except Exception as e:
+            log(f"error {type(e).__name__}: {e}")
+            time.sleep(max(POLL_SECONDS, 1.0))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
