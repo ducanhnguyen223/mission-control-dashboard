@@ -6,7 +6,25 @@ import { buildCleanupQueue } from '@/lib/mail-guard';
 import type { AgentTaskItem, DashboardSnapshot, OpenClawStatus } from '@/lib/types';
 
 const MEMORY_DIR = process.env.OPENCLAW_MEMORY_DIR ?? '/root/.openclaw/workspace/memory';
-const INBOUND_DIR = process.env.OPENCLAW_INBOUND_DIR ?? '/root/.openclaw/media/inbound';
+const RUNTIME_BRIDGE_DIR = process.env.OPENCLAW_RUNTIME_BRIDGE_DIR ?? join(process.cwd(), '.runtime-bridge');
+
+const INBOUND_DIR_CANDIDATES = compactPaths([
+  process.env.OPENCLAW_INBOUND_DIR,
+  `${RUNTIME_BRIDGE_DIR}/inbound`,
+  '/root/.openclaw/media/inbound'
+]);
+
+const MAIN_SESSIONS_PATH_CANDIDATES = compactPaths([
+  process.env.OPENCLAW_MAIN_SESSIONS_PATH,
+  `${RUNTIME_BRIDGE_DIR}/sessions/main-sessions.json`,
+  '/root/.openclaw/agents/main/sessions/sessions.json'
+]);
+
+const CLAUDE_SESSIONS_PATH_CANDIDATES = compactPaths([
+  process.env.OPENCLAW_CLAUDE_SESSIONS_PATH,
+  `${RUNTIME_BRIDGE_DIR}/sessions/claude-code-sessions.json`,
+  '/root/.openclaw/agents/claude-code/sessions/sessions.json'
+]);
 
 const WATCHDOG_LOG = `${MEMORY_DIR}/claude-watchdog.log`;
 const CONTROLLER_V2_LOG = `${MEMORY_DIR}/claude-controller-v2.log`;
@@ -15,10 +33,6 @@ const CONTROLLER_V3_LOG = `${MEMORY_DIR}/claude-controller-v3.log`;
 const WATCHDOG_STATE = `${MEMORY_DIR}/claude-watchdog.state`;
 const CONTROLLER_V2_STATE = `${MEMORY_DIR}/claude-controller-v2.state`;
 const CONTROLLER_V3_STATE = `${MEMORY_DIR}/claude-controller-v3.state`;
-
-const MAIN_SESSIONS_PATH = process.env.OPENCLAW_MAIN_SESSIONS_PATH ?? '/root/.openclaw/agents/main/sessions/sessions.json';
-const CLAUDE_SESSIONS_PATH =
-  process.env.OPENCLAW_CLAUDE_SESSIONS_PATH ?? '/root/.openclaw/agents/claude-code/sessions/sessions.json';
 
 type RuntimeStatus = 'running' | 'completed' | 'failed';
 
@@ -88,8 +102,8 @@ async function readRuntimeSnapshot(): Promise<RuntimeSnapshot> {
     readTextFile(WATCHDOG_STATE),
     readTextFile(CONTROLLER_V2_STATE),
     readTextFile(CONTROLLER_V3_STATE),
-    readTextFile(MAIN_SESSIONS_PATH),
-    readTextFile(CLAUDE_SESSIONS_PATH),
+    readFirstReadableFile(MAIN_SESSIONS_PATH_CANDIDATES),
+    readFirstReadableFile(CLAUDE_SESSIONS_PATH_CANDIDATES),
     readInboundMailEvents()
   ]);
 
@@ -295,38 +309,42 @@ function deriveOpenClawStatus(input: {
 }
 
 async function readInboundMailEvents(): Promise<RuntimeMailEvent[]> {
-  try {
-    const entries = await readdir(INBOUND_DIR, { withFileTypes: true });
-    const jsonNames = entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
-      .map((entry) => entry.name)
-      .sort((a, b) => b.localeCompare(a))
-      .slice(0, 40);
+  for (const inboundDir of INBOUND_DIR_CANDIDATES) {
+    try {
+      const entries = await readdir(inboundDir, { withFileTypes: true });
+      const jsonNames = entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+        .map((entry) => entry.name)
+        .sort((a, b) => b.localeCompare(a))
+        .slice(0, 40);
 
-    const enriched = await Promise.all(
-      jsonNames.map(async (name) => {
-        const filePath = join(INBOUND_DIR, name);
-        const fileStat = await stat(filePath);
-        const parsed = parseInboundFilename(name);
+      const enriched = await Promise.all(
+        jsonNames.map(async (name) => {
+          const filePath = join(inboundDir, name);
+          const fileStat = await stat(filePath);
+          const parsed = parseInboundFilename(name);
 
-        return {
-          id: name,
-          sender: parsed.sender,
-          subject: parsed.subject,
-          receivedAt: fileStat.mtime.toISOString()
-        };
-      })
-    );
+          return {
+            id: name,
+            sender: parsed.sender,
+            subject: parsed.subject,
+            receivedAt: fileStat.mtime.toISOString()
+          };
+        })
+      );
 
-    return enriched.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).slice(0, 6);
-  } catch (error: unknown) {
-    console.error('[dashboard-source] Failed to read inbound mail events', {
-      path: INBOUND_DIR,
-      error: error instanceof Error ? error.message : String(error)
-    });
-
-    return [];
+      return enriched.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).slice(0, 6);
+    } catch (error: unknown) {
+      if (!isExpectedProbeError(error)) {
+        console.error('[dashboard-source] Failed to read inbound mail events', {
+          path: inboundDir,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
   }
+
+  return [];
 }
 
 function parseInboundFilename(fileName: string): { sender: string; subject: string } {
@@ -492,4 +510,45 @@ async function readTextFile(path: string): Promise<string> {
 
     return '';
   }
+}
+
+async function readFirstReadableFile(paths: string[]): Promise<string> {
+  for (const path of paths) {
+    try {
+      return await readFile(path, 'utf8');
+    } catch (error: unknown) {
+      if (!isExpectedProbeError(error)) {
+        console.error('[dashboard-source] Failed to read candidate file', {
+          path,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
+
+  return '';
+}
+
+function isExpectedProbeError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code !== undefined &&
+    ['ENOENT', 'EACCES', 'ENOTDIR', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')
+  );
+}
+
+function compactPaths(paths: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+
+  return paths.filter((value): value is string => {
+    const trimmed = value?.trim();
+
+    if (!trimmed || seen.has(trimmed)) {
+      return false;
+    }
+
+    seen.add(trimmed);
+    return true;
+  });
 }
